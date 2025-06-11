@@ -1,0 +1,36 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.9",
+    "pybind11>=2.12"
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name            = "fastgrams"
+version         = "0.1.0"
+description     = "Ngram and char trigram tokenization, derived from OmnisearchSage"
+readme          = "README.md"
+requires-python = ">=3.8"
+authors         = [{ name = "Your Name", email = "you@example.com" }]
+license         = { text = "MIT" }
+classifiers     = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[dependency-groups]
+dev = [
+    "jupyter",
+    "datasets"
+]
+
+[tool.scikit-build]
+wheel.packages = ["fastgrams"]
+
+[tool.scikit-build.cmake]
+version = ">=3.18"          # replaces “minimum-version”
+
+[tool.scikit-build.logging]
+level = "INFO"
