@@ -95,6 +95,7 @@ public:
     // Returns the packed uint64 version of the current 3-character buffer.
     // Only valid when the queue size equals its capacity (n <= 3 in our use-case).
     std::uint64_t to_packed() const {
+        assert(max_ == 3 && "to_packed only supports n == 3");
         assert(buf_.size() == max_ && "to_packed called with incomplete buffer");
         // Each Unicode code point is at most 21 bits (max value 0x10FFFF), so no character can be larger than 1<<21.
         const std::uint64_t mask21 = (1ULL << 21) - 1ULL;
@@ -251,24 +252,15 @@ std::vector<std::uint64_t> char_trigram_tokenize(const std::string& utf8) {
 }
 
 /* ------------------------ counting helpers ------------------------------ */
-template <typename TokenFunc>
-py::dict generic_counts(py::iterable strings,
-                        int n,
-                        TokenFunc&& fn) {
+py::dict ngram_counts(py::iterable strings, int n = 1) {
     absl::flat_hash_map<std::string, std::int64_t> freq;
     for (auto obj : strings) {
-        for (const auto& tok : fn(py::cast<std::string>(obj), n))
+        for (const auto& tok : ngram_tokenize(py::cast<std::string>(obj), n))
             ++freq[tok];
     }
     py::dict out;
     for (auto& kv : freq) out[py::str(kv.first)] = kv.second;
     return out;
-}
-
-py::dict ngram_counts(py::iterable strings, int n = 1) {
-    return generic_counts(strings, n, [](const std::string& s, int nn) {
-        return ngram_tokenize(s, nn);
-    });
 }
 
 py::dict char_trigram_counts(py::iterable strings, int /*unused*/ = 1) {
