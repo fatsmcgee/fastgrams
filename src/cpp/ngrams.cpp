@@ -22,6 +22,8 @@
 #include <deque>
 #include <string>
 #include <vector>
+#include <cstdint>
+#include <cassert>
 
 namespace py = pybind11;
 
@@ -90,6 +92,17 @@ public:
         buf_.push_back(c);
     }
     std::size_t size() const { return buf_.size(); }
+    // Returns the packed uint64 version of the current 3-character buffer.
+    // Only valid when the queue size equals its capacity (n <= 3 in our use-case).
+    std::uint64_t to_packed() const {
+        assert(buf_.size() == max_ && "to_packed called with incomplete buffer");
+        // Each Unicode code point is at most 21 bits (max value 0x10FFFF), so no character can be larger than 1<<21.
+        const std::uint64_t mask21 = (1ULL << 21) - 1ULL;
+        std::uint64_t a = static_cast<std::uint64_t>(buf_[0]) & mask21;
+        std::uint64_t b = static_cast<std::uint64_t>(buf_[1]) & mask21;
+        std::uint64_t c = static_cast<std::uint64_t>(buf_[2]) & mask21;
+        return a | (b << 21) | (c << 42);
+    }
     icu::UnicodeString str() const {
         icu::UnicodeString out(max_, 0, 0);
         for (auto c : buf_) out.append(static_cast<int32_t>(c));
@@ -126,40 +139,6 @@ private:
 /*  Core algorithms (borrowed verbatim, but isolated)                        */
 /* ------------------------------------------------------------------------ */
 
-void char_ngramify(const icu::UnicodeString& text,
-                   std::size_t n,
-                   std::vector<icu::UnicodeString>& out) {
-
-    if (static_cast<std::size_t>(text.length()) + 2 < n) return;
-
-    CharQueue cq(n);
-    cq.push(kBoundary);                       // leading '#'
-
-    int32_t i = 0;
-    const int32_t len = text.length();
-    while (i <= len) {
-        if (i == len) {                       // flush trailing boundary
-            if (cq.back() != kBoundary) {
-                cq.push(kBoundary);
-                if (cq.size() == n) out.emplace_back(cq.str());
-            }
-            ++i;
-            continue;
-        }
-
-        char32_t cp = text.char32At(i);
-        if (is_whitespace(cp)) {
-            if (cq.back() != kBoundary) {
-                cq.push(kBoundary);
-                if (cq.size() == n) out.emplace_back(cq.str());
-            }
-        } else {
-            cq.push(cp);
-            if (cq.size() == n) out.emplace_back(cq.str());
-        }
-        ++i;
-    }
-}
 
 bool is_ws_or_punct(char32_t c) { return is_whitespace(c) || is_punctuation(c); }
 
@@ -234,16 +213,40 @@ std::vector<std::string> ngram_tokenize(const std::string& utf8,
     return out;
 }
 
-std::vector<std::string> char_trigram_tokenize(const std::string& utf8) {
-    icu::UnicodeString us = icu::UnicodeString::fromUTF8(utf8);
-    icu::UnicodeString norm = normalize(us);
+std::vector<std::uint64_t> char_trigram_tokenize(const std::string& utf8) {
+    icu::UnicodeString norm = normalize(
+        icu::UnicodeString::fromUTF8(utf8));
 
-    std::vector<icu::UnicodeString> tmp;
-    char_ngramify(norm, /*n=*/3, tmp);
+    std::vector<std::uint64_t> out;
+    if (norm.length() + 2 < 3)      // fewer than 3 code-points incl. sentinels
+        return out;
 
-    std::vector<std::string> out;
-    out.reserve(tmp.size());
-    for (auto& u : tmp) out.push_back(to_utf8(u));
+    CharQueue cq(3);                // 3-char sliding window
+    cq.push(kBoundary);             // leading '#'
+
+    int32_t i = 0, len = norm.length();
+    while (true) {
+        bool exhausted = (i == len);     // true ⇒ flush trailing '#'
+        char32_t cp = exhausted ? kBoundary : norm.char32At(i);
+
+        if (is_whitespace(cp) || exhausted) {
+            if (cq.back() != kBoundary) {
+                cq.push(kBoundary);
+                if (cq.size() == 3) {
+                    out.push_back(cq.to_packed());
+                }
+            }
+        } else {
+            cq.push(cp);
+            if (cq.size() == 3) {
+                out.push_back(cq.to_packed());
+            }
+        }
+
+        if (exhausted) break;
+        ++i;
+    }
+
     return out;
 }
 
@@ -269,9 +272,14 @@ py::dict ngram_counts(py::iterable strings, int n = 1) {
 }
 
 py::dict char_trigram_counts(py::iterable strings, int /*unused*/ = 1) {
-    return generic_counts(strings, 0, [](const std::string& s, int) {
-        return char_trigram_tokenize(s);
-    });
+    absl::flat_hash_map<std::uint64_t, std::int64_t> freq;
+    for (auto obj : strings) {
+        for (const auto& tok : char_trigram_tokenize(py::cast<std::string>(obj)))
+            ++freq[tok];
+    }
+    py::dict out;
+    for (auto& kv : freq) out[py::int_(kv.first)] = kv.second;
+    return out;
 }
 
 /* -------------------------------------------------------------------- */
@@ -329,8 +337,8 @@ class VocabCharTrigramTokenizer {
 public:
     explicit VocabCharTrigramTokenizer(py::dict vocab) {
         for (auto kv : vocab) {
-            vocab_[py::cast<std::string>(kv.first)] =
-                static_cast<std::int64_t>(py::cast<std::int64_t>(kv.second));
+            std::uint64_t key = static_cast<std::uint64_t>(py::cast<std::uint64_t>(kv.first));
+            vocab_[key] = static_cast<std::int64_t>(py::cast<std::int64_t>(kv.second));
         }
     }
 
@@ -343,7 +351,7 @@ public:
 
         py::list out;
         for (auto py_s : strings) {
-            std::vector<std::string> toks = char_trigram_tokenize(py::cast<std::string>(py_s));
+            std::vector<std::uint64_t> toks = char_trigram_tokenize(py::cast<std::string>(py_s));
 
             std::vector<std::int64_t> idxs;
             idxs.reserve(toks.size());
@@ -367,7 +375,7 @@ public:
     }
 
 private:
-    absl::flat_hash_map<std::string, std::int64_t> vocab_;
+    absl::flat_hash_map<std::uint64_t, std::int64_t> vocab_;
 };
 
 }

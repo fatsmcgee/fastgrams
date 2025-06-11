@@ -19,6 +19,9 @@ classifiers     = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "numpy"
+]
 
 [dependency-groups]
 dev = [
@@ -30,7 +33,7 @@ dev = [
 wheel.packages = ["fastgrams"]
 
 [tool.scikit-build.cmake]
-version = ">=3.18"          # replaces “minimum-version”
+version = ">=3.18"          # replaces "minimum-version"
 
 [tool.scikit-build.logging]
 level = "INFO"
