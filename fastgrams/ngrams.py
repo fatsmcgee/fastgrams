@@ -26,7 +26,7 @@ def extract_bigrams_from_unigrams_pa(unigrams: pa.ListArray) -> pa.ListArray:
 
     Returns
     -------
-    pa.ListArray
+    pa.ListArray of String
         A PyArrow ListArray where each element is a list of bigrams.
         Example: [['a#b', 'b#c'], ['d#e']]
     """
@@ -75,7 +75,7 @@ def unigram_tokenize_pa(texts: Iterable[str]) -> pa.ListArray:
     texts : Iterable[str]
     Returns
     -------
-    py arrow ListArray with string dtype, essentially a List[List[str]]
+    py arrow ListArray of strings, essentially a List[List[str]]
     """
     # Assert that there are no None values in the input texts
     assert all(t is not None for t in texts), "texts must not contain None entries"
@@ -203,12 +203,8 @@ def ngram_tokenize(strings: Iterable[str], include_bigrams: bool = False):
     -------
     list | tuple(list, list)
         If `include_bigrams` is False, returns the list of unigram tokens for
-        each input string (i.e. the result of `unigram_tokenize_pa(...).to_pylist()`).
-        If `include_bigrams` is True and at least one bigram is produced,
-        returns a tuple where the first element is the unigram list and the
-        second element is the list of bigram tokens.  If `include_bigrams` is
-        True but **no** bigrams are produced (all input strings have fewer
-        than two tokens), only the unigram list is returned.
+        each input string
+        If `include_bigrams` is True, also return bigram tokens
     """
 
     # Generate the unigram tokens first
@@ -224,9 +220,8 @@ def ngram_tokenize(strings: Iterable[str], include_bigrams: bool = False):
     return unigrams_pa.to_pylist(), bigrams_py
 
 
-# Helper to convert Arrow value_counts struct -> Python dict
 def pa_value_counts_to_dict(struct_arr: pa.StructArray) -> dict[Any,int]:
-    """Convert a StructArray returned by pc.value_counts to a Python dict."""
+    """Convert a StructArray returned by pc.value_counts to a Python dict mapping value to count."""
     return {
         token: count
         for token, count in zip(
@@ -293,6 +288,8 @@ class VocabNgramTokenizer:
 
         # Ensure no nulls – our upstream tokenisers should not generate any
         assert string_arr.null_count == 0, "StringArray must not contain null values"
+        # This format is garanteed by the Arrow format specification
+        # E.g see "Variable-size Binary Layout": https://arrow.apache.org/docs/format/Columnar.html#variable-size-binary-layout
         null_buf, offsets_buf, data_buf = string_arr.buffers()
         assert null_buf is None, "Unexpected null bitmap present in StringArray"
 
@@ -316,9 +313,6 @@ class VocabNgramTokenizer:
             out.append(ids_flat[start:end])
         return out
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
     def tokenize(self, strings: Iterable[str], include_bigrams: bool = False):
         """Tokenize *strings* and map tokens to integer IDs.
 
@@ -346,14 +340,9 @@ def char_trigram_tokenize(strings: Iterable[str]):
         for packed_tg_arr in packed_tg_list.to_numpy(zero_copy_only=False)
     ]
 
-def char_trigram_counts(strings: Iterable[str]):
+def char_trigram_counts(strings: Iterable[str]) -> dict[str,int]:
     """
     Compute frequency counts of character trigrams occurring in *strings*.
-
-    This first encodes each 3-character slice into a packed ``uint64`` code
-    via :pyfunc:`extract_packed_trigrams_pa`, counts these packed codes using
-    Arrow's fast ``value_counts`` kernel, then converts the packed codes back
-    into human-readable 3-character strings.
 
     Parameters
     ----------
@@ -384,18 +373,9 @@ def char_trigram_counts(strings: Iterable[str]):
     return trigram_counts
 
 
-# ------------------------------------------------------------------
-# Vocab-aware character trigram tokenizer (Arrow + uint64 mapping)
-# ------------------------------------------------------------------
-
 
 class VocabCharTrigramTokenizer:
-    """Tokenize text into packed character trigram ID sequences.
-
-    This mirrors :class:`VocabNgramTokenizer` but operates on the packed
-    64-bit representations of character trigrams produced by
-    :pyfunc:`extract_packed_trigrams_pa`.
-
+    """Tokenize text into mapped character trigram ID sequences.
     Parameters
     ----------
     trigram_vocab : dict[str, int]
