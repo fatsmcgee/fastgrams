@@ -216,7 +216,7 @@ def test_char_trigram_counts():
 
 def test_char_trigram_counts_empty():
     assert fg.char_trigram_counts([]) == {}
-    assert fg.char_trigram_counts(["", " "]) == {}
+    assert fg.char_trigram_counts(["", "     "]) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +268,6 @@ def test_vocab_char_trigram_tokenizer():
 def test_vocab_char_trigram_tokenizer_empty_input():
     tok = fg.VocabCharTrigramTokenizer({"#a#": 1})
     assert tok.tokenize([]) == []
-    arrs = tok.tokenize([""])
+    arrs = tok.tokenize(["     "])
     assert len(arrs) == 1
     assert len(arrs[0]) == 0

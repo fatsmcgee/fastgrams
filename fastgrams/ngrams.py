@@ -176,12 +176,12 @@ def extract_packed_trigrams_pa(texts):
     texts = pc.utf8_normalize(texts, "NFKC")
     texts = pc.utf8_lower(texts)
 
-    # Collapse  whitespaces and represent them as a single #
-    texts = pc.replace_substring_regex(texts, _WHITESPACE_RE, "#")
 
-    # Add a hash # to the start/end of the string so char trigrams can have start of string boundaries
-    texts = pc.replace_substring_regex(texts, r"^|$", r"#")
-
+    # Add boundary markers '#' to start / end of string and to multiple consecutive whitespaces
+    # For some reason in pyarrow you have to do ^\s* instead of ^ (same for $) to get this to work
+    texts = pc.replace_substring_regex(texts, r"^\s*|\s+|\s*$", "#")
+    texts = pc.replace_substring_regex(texts, r"#{2,}", "#")
+    
     texts = texts.to_numpy(zero_copy_only=False)
     packed_trigrams = [string_to_packed_trigrams(s) for s in texts]
     return pa.array(packed_trigrams, type=pa.list_(pa.uint64()))
@@ -339,11 +339,6 @@ class VocabNgramTokenizer:
         bi_ids = self._map_list_array_to_id_lists(bi_list_arr, self._bi_mapper)
         return uni_ids, bi_ids
 
-
-# ------------------------------------------------------------------
-# Character trigram counts
-# ------------------------------------------------------------------
-
 def char_trigram_tokenize(strings: Iterable[str]):
     packed_tg_list = extract_packed_trigrams_pa(strings)
     return [
@@ -439,7 +434,6 @@ class VocabCharTrigramTokenizer:
             out.append(ids_flat[start:end])
         return out
 
-    # ---------------------------- public -----------------------------
     def __init__(self, trigram_vocab: dict[str, int]):
         # Convert UTF-8 trigram keys to packed uint64 codes
         packed_dict: dict[int, int] = {
