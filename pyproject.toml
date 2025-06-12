@@ -20,7 +20,8 @@ classifiers     = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy"
+    "numpy",
+    "pyarrow>=0.16.0" #0.16.0 implements .offsets for ListArray
 ]
 
 [dependency-groups]

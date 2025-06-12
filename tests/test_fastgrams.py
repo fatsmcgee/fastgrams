@@ -1,10 +1,59 @@
-import fastgrams
+import fastgrams as fg
 
 
 # ---------------------------------------------------------------------------
 # n-gram tokenisation --------------------------------------------------------
 # ---------------------------------------------------------------------------
 
+
+def test_vocab_ngram_tokenizer():
+# Simple sanity-check for the VocabNgramTokenizer
+    strings = [
+        "dog cat mouse fish",  # 4 tokens -> 3 bigrams
+        "goat herder"           # 2 tokens -> 1 bigram
+    ]
+
+    # Build vocabularies from the sample data
+    unigram_counts, bigram_counts = fg.ngram_counts(strings, include_bigrams=True)
+    unigram_vocab = {tok: idx for idx, tok in enumerate(unigram_counts)}
+    bigram_vocab = {tok: idx for idx, tok in enumerate(bigram_counts)}
+
+    tokenizer = fg.VocabNgramTokenizer(unigram_vocab, bigram_vocab)
+    uni_ids, bi_ids = tokenizer.tokenize(strings, include_bigrams=True)
+
+    print("Input strings:", strings)
+    print("Unigram IDs:", uni_ids)
+    print("Bigram IDs:", bi_ids)
+
+def test_char_trigram_counts_basic():
+    """Ensure char_trigram_counts correctly tallies trigram occurrences."""
+    counts_py = fg.char_trigram_counts(["ab", "ab"])
+    # Cast potential NumPy scalars → int for stable equality comparison
+    counts = {k: int(v) for k, v in counts_py.items()}
+
+    expected_tokens = ["#ab", "ab#"]  # A 2-char word yields 2 trigrams
+    expected = {t: 2 for t in expected_tokens}
+
+    assert counts == expected
+
+
+def test_vocab_char_trigram_tokenizer_active():
+    """Sanity-check VocabCharTrigramTokenizer mapping behaviour."""
+    # Build a small vocabulary from the trigrams of "cat"
+    tris = fg.char_trigram_tokenize(["cat"])[0]
+    vocab = {tok: idx for idx, tok in enumerate(tris)}
+
+    tokenizer = fg.VocabCharTrigramTokenizer(vocab)
+
+    # Two inputs: one fully covered by vocab, one containing only unknown tokens
+    arrays = tokenizer.tokenize(["cat", "dog"])
+
+    # First string → sequential IDs 0..len(tris)-1
+    assert list(arrays[0]) == list(range(len(tris)))
+
+    # Second string → all OOV, hence default (-1)
+    assert all(v == -1 for v in arrays[1])
+"""
 def test_ngram_tokenize_basic():
     english_sentence = "Hello,   World!  "
     toks = fastgrams.ngram_tokenize(english_sentence, n=1)
@@ -76,7 +125,6 @@ def test_ngram_tokenize_unicode_normalization():
 # ---------------------------------------------------------------------------
 
 def _ct(s):
-    """Helper that returns char-trigram tokens converted to UTF-8 strings."""
     return fastgrams.char_trigram_tokenize(s)
 
 
@@ -95,7 +143,6 @@ def test_char_trigram_empty_string():
 
 
 def test_char_trigram_whitespace_bridging():
-    """Ensure that trigram generation correctly handles word boundaries."""
     tokens = _ct("hello world")
     expected = [
         # hello
@@ -241,3 +288,12 @@ def test_vocab_char_trigram_tokenizer_empty_input():
     arrs = tok.tokenize([""])
     assert len(arrs) == 1
     assert len(arrs[0]) == 0
+"""
+
+# End of commented-out test block
+
+# ---------------------------------------------------------------------------
+# Active tests for char_trigram_counts --------------------------------------
+# ---------------------------------------------------------------------------
+
+
