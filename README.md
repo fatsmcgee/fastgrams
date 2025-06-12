@@ -1,7 +1,4 @@
-# Sequen Extension Libraries
 
-* This  contains Python extension packages (those that require compiling native code), which
-currently consists of just `fastgrams`.
 
 ## Building/Installing This Package
 
@@ -12,7 +9,7 @@ currently consists of just `fastgrams`.
 
 ## Fastgrams
 
-Fastgrams is a hyper fast ngram tokenizer, which has virtually identical logic to Pinterest's [OmniSearchSage](https://github.com/pinterest/atg-research/tree/main/omnisearchsage)
+Fastgrams is a hyper fast ngram tokenizer, which has similar logic to Pinterest's [OmniSearchSage](https://github.com/pinterest/atg-research/tree/main/omnisearchsage)
 
 ### Text cleaning and normalization 
   - All input text is [Unicode NFKC normalized](https://unicode.org/reports/tr15/#NFKC_Compatibility_Decomposition), ensuring consistent character representation.
