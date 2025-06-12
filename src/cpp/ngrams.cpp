@@ -26,6 +26,12 @@
 #include <cassert>
 
 namespace py = pybind11;
+// Unicode code points are at most 21 bits (max value 0x10FFFF), so no character can be larger than 1<<21.
+// and 3 characters can be packed into a 63-bit integer.
+typedef std::uint64_t packed_trigram;
+
+// Forward declaration so structs above can call it
+inline packed_trigram pack_trigram(char32_t a, char32_t b, char32_t c);
 
 /* ------------------------------------------------------------------------ */
 /*  Small helpers                                                           */
@@ -94,15 +100,10 @@ public:
     std::size_t size() const { return buf_.size(); }
     // Returns the packed uint64 version of the current 3-character buffer.
     // Only valid when the queue size equals its capacity (n <= 3 in our use-case).
-    std::uint64_t to_packed() const {
+    packed_trigram to_packed() const {
         assert(max_ == 3 && "to_packed only supports n == 3");
         assert(buf_.size() == max_ && "to_packed called with incomplete buffer");
-        // Each Unicode code point is at most 21 bits (max value 0x10FFFF), so no character can be larger than 1<<21.
-        const std::uint64_t mask21 = (1ULL << 21) - 1ULL;
-        std::uint64_t a = static_cast<std::uint64_t>(buf_[0]) & mask21;
-        std::uint64_t b = static_cast<std::uint64_t>(buf_[1]) & mask21;
-        std::uint64_t c = static_cast<std::uint64_t>(buf_[2]) & mask21;
-        return a | (b << 21) | (c << 42);
+        return pack_trigram(buf_[0], buf_[1], buf_[2]);
     }
     icu::UnicodeString str() const {
         icu::UnicodeString out(max_, 0, 0);
@@ -192,6 +193,37 @@ icu::UnicodeString tokenize_chinese_chars(const icu::UnicodeString& text) {
     return out;
 }
 
+// Helper functions to convert between packed trigrams and UTF-8 strings
+constexpr std::uint64_t kMask21 = (1ULL << 21) - 1ULL;
+
+inline std::string unpack_trigram(packed_trigram p) {
+    char32_t a = static_cast<char32_t>(p & kMask21);
+    char32_t b = static_cast<char32_t>((p >> 21) & kMask21);
+    char32_t c = static_cast<char32_t>((p >> 42) & kMask21);
+    icu::UnicodeString us;
+    us.append(static_cast<int32_t>(a))
+      .append(static_cast<int32_t>(b))
+      .append(static_cast<int32_t>(c));
+    return to_utf8(us);
+}
+
+inline packed_trigram pack_trigram(char32_t a, char32_t b, char32_t c) {
+    return (static_cast<std::uint64_t>(a) & kMask21) |
+           ((static_cast<std::uint64_t>(b) & kMask21) << 21) |
+           ((static_cast<std::uint64_t>(c) & kMask21) << 42);
+}
+
+inline packed_trigram pack_trigram(const icu::UnicodeString& us) {
+    assert(us.countChar32() == 3 && "pack_trigram expects exactly 3 code points");
+    int32_t offset = 0;
+    char32_t a = us.char32At(offset);
+    offset += U16_LENGTH(a);
+    char32_t b = us.char32At(offset);
+    offset += U16_LENGTH(b);
+    char32_t c = us.char32At(offset);
+    return pack_trigram(a, b, c);
+}
+
 }  // namespace
 
 /* ------------------------------------------------------------------------ */
@@ -214,11 +246,11 @@ std::vector<std::string> ngram_tokenize(const std::string& utf8,
     return out;
 }
 
-std::vector<std::uint64_t> char_trigram_tokenize(const std::string& utf8) {
+std::vector<packed_trigram> char_trigram_tokenize_packed(const std::string& utf8) {
     icu::UnicodeString norm = normalize(
         icu::UnicodeString::fromUTF8(utf8));
 
-    std::vector<std::uint64_t> out;
+    std::vector<packed_trigram> out;
     if (norm.length() + 2 < 3)      // fewer than 3 code-points incl. sentinels
         return out;
 
@@ -251,6 +283,16 @@ std::vector<std::uint64_t> char_trigram_tokenize(const std::string& utf8) {
     return out;
 }
 
+std::vector<std::string> char_trigram_tokenize(const std::string& utf8) {
+    std::vector<packed_trigram> packed = char_trigram_tokenize_packed(utf8);
+    std::vector<std::string> out;
+    out.reserve(packed.size());
+    for (auto p : packed) {
+        out.push_back(unpack_trigram(p));
+    }
+    return out;
+}
+
 /* ------------------------ counting helpers ------------------------------ */
 py::dict ngram_counts(py::iterable strings, int n = 1) {
     absl::flat_hash_map<std::string, std::int64_t> freq;
@@ -264,13 +306,13 @@ py::dict ngram_counts(py::iterable strings, int n = 1) {
 }
 
 py::dict char_trigram_counts(py::iterable strings, int /*unused*/ = 1) {
-    absl::flat_hash_map<std::uint64_t, std::int64_t> freq;
+    absl::flat_hash_map<packed_trigram, std::int64_t> freq;
     for (auto obj : strings) {
-        for (const auto& tok : char_trigram_tokenize(py::cast<std::string>(obj)))
+        for (const auto& tok : char_trigram_tokenize_packed(py::cast<std::string>(obj)))
             ++freq[tok];
     }
     py::dict out;
-    for (auto& kv : freq) out[py::int_(kv.first)] = kv.second;
+    for (auto& kv : freq) out[py::str(unpack_trigram(kv.first))] = kv.second;
     return out;
 }
 
@@ -329,7 +371,9 @@ class VocabCharTrigramTokenizer {
 public:
     explicit VocabCharTrigramTokenizer(py::dict vocab) {
         for (auto kv : vocab) {
-            std::uint64_t key = static_cast<std::uint64_t>(py::cast<std::uint64_t>(kv.first));
+            std::string key_utf8 = py::cast<std::string>(kv.first);
+            icu::UnicodeString us = icu::UnicodeString::fromUTF8(key_utf8);
+            packed_trigram key = pack_trigram(us);
             vocab_[key] = static_cast<std::int64_t>(py::cast<std::int64_t>(kv.second));
         }
     }
@@ -343,7 +387,7 @@ public:
 
         py::list out;
         for (auto py_s : strings) {
-            std::vector<std::uint64_t> toks = char_trigram_tokenize(py::cast<std::string>(py_s));
+            std::vector<packed_trigram> toks = char_trigram_tokenize_packed(py::cast<std::string>(py_s));
 
             std::vector<std::int64_t> idxs;
             idxs.reserve(toks.size());
@@ -367,7 +411,7 @@ public:
     }
 
 private:
-    absl::flat_hash_map<std::uint64_t, std::int64_t> vocab_;
+    absl::flat_hash_map<packed_trigram, std::int64_t> vocab_;
 };
 
 }
