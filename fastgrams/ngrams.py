@@ -14,7 +14,6 @@ _RE_HAN_SINGLE = r"(\p{Han})"
 _RE_PUNCT = r"\p{P}+"
 _WHITESPACE_RE = r"\s+"
 
-
 def extract_bigrams_from_unigrams_pa(unigrams: pa.ListArray) -> pa.ListArray:
     """
     Given a ListArray of unigrams (essentially List[List[str]]), create a ListArray of bigrams

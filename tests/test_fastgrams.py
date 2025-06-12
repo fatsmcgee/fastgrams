@@ -27,10 +27,7 @@ def test_vocab_ngram_tokenizer():
 
 def test_char_trigram_counts_basic():
     """Ensure char_trigram_counts correctly tallies trigram occurrences."""
-    counts_py = fg.char_trigram_counts(["ab", "ab"])
-    # Cast potential NumPy scalars → int for stable equality comparison
-    counts = {k: int(v) for k, v in counts_py.items()}
-
+    counts = fg.char_trigram_counts(["ab", "ab"])
     expected_tokens = ["#ab", "ab#"]  # A 2-char word yields 2 trigrams
     expected = {t: 2 for t in expected_tokens}
 
@@ -53,70 +50,71 @@ def test_vocab_char_trigram_tokenizer_active():
 
     # Second string → all OOV, hence default (-1)
     assert all(v == -1 for v in arrays[1])
-"""
+
 def test_ngram_tokenize_basic():
     english_sentence = "Hello,   World!  "
-    toks = fastgrams.ngram_tokenize(english_sentence, n=1)
+    toks = fg.ngram_tokenize([english_sentence])[0]
     # ICU NFKC_CaseFold will lower-case the text.
     assert toks == ["hello", "world"]
 
 
 def test_ngram_tokenize_whitespace():
     whitespace_sentence = "\t Quick\n brown  \r fox  "
-    toks = fastgrams.ngram_tokenize(whitespace_sentence, n=1)
+    toks = fg.ngram_tokenize([whitespace_sentence])[0]
     assert toks == ["quick", "brown", "fox"]
 
 
 def test_ngram_tokenize_cjk():
     # "我爱机器学习" means "I love machine learning" in Chinese
     cjk_sentence = "我爱机器学习"
-    toks = fastgrams.ngram_tokenize(cjk_sentence, n=1)
+    toks = fg.ngram_tokenize([cjk_sentence])[0]
     # Each Han character should be treated as an individual token.
     assert toks == list(cjk_sentence)
 
 
 def test_ngram_tokenize_bigrams():
-    toks = fastgrams.ngram_tokenize("Hello world again", n=2)
+    unigrams, bigrams = fg.ngram_tokenize(["Hello world again"], include_bigrams=True)
     # Boundary character "#" joins adjacent tokens.
-    assert toks == ["hello#world", "world#again"]
-
-
-def test_ngram_tokenize_trigrams():
-    toks = fastgrams.ngram_tokenize("one two three four", n=3)
-    assert toks == ["one#two#three", "two#three#four"]
+    assert bigrams[0] == ["hello#world", "world#again"]
 
 
 def test_ngram_tokenize_n_greater_than_tokens():
-    assert fastgrams.ngram_tokenize("one two", n=3) == []
-    assert fastgrams.ngram_tokenize("one two", n=2) == ["one#two"]
+    # For bigrams, if not enough tokens, should return empty list
+    unigrams, bigrams = fg.ngram_tokenize(["one"], include_bigrams=True)
+    assert bigrams[0] == []
+    # For two tokens, should return one bigram
+    unigrams, bigrams = fg.ngram_tokenize(["one two"], include_bigrams=True)
+    assert bigrams[0] == ["one#two"]
 
 
 def test_ngram_tokenize_empty_string():
-    assert fastgrams.ngram_tokenize("", n=1) == []
+    toks = fg.ngram_tokenize([""])[0]
+    assert toks == []
 
 
 def test_ngram_tokenize_only_whitespace_and_punct():
-    assert fastgrams.ngram_tokenize("!@#$%,.  \t\n", n=1) == []
+    toks = fg.ngram_tokenize(["!@#%,.  \t\n"])[0]
+    assert toks == []
 
 
 def test_ngram_tokenize_with_punctuation():
     # Punctuation should be removed.
-    toks = fastgrams.ngram_tokenize("a-b/c'd", n=1)
+    toks = fg.ngram_tokenize(["a-b/c'd"])[0]
     assert toks == ["a", "b", "c", "d"]
 
 
 def test_ngram_tokenize_mixed_scripts():
     # CJK characters are treated as tokens, Latin text is case-folded.
-    toks = fastgrams.ngram_tokenize("I爱machine learning", n=1)
+    toks = fg.ngram_tokenize(["I爱machine learning"])[0]
     assert toks == ["i", "爱", "machine", "learning"]
 
 
 def test_ngram_tokenize_unicode_normalization():
     # Full-width Latin characters.
-    toks = fastgrams.ngram_tokenize("Ｈｅｌｌｏ", n=1)
+    toks = fg.ngram_tokenize(["Ｈｅｌｌｏ"])[0]
     assert toks == ["hello"]
     # Ligatures
-    toks = fastgrams.ngram_tokenize("\uFB03", n=1)  # ffi ligature
+    toks = fg.ngram_tokenize(["\uFB03"])[0]  # ffi ligature
     assert toks == ["ffi"]
 
 
@@ -124,26 +122,26 @@ def test_ngram_tokenize_unicode_normalization():
 # Char-trigram tokenisation --------------------------------------------------
 # ---------------------------------------------------------------------------
 
-def _ct(s):
-    return fastgrams.char_trigram_tokenize(s)
+def _ct_single_str(s: str):
+    return fg.char_trigram_tokenize([s])[0]
 
 
 def test_char_trigram_basic():
     # "cat" – sentinel # at both ends → [#ca, cat, at#]
-    assert _ct("cat") == ["#ca", "cat", "at#"]
+    assert _ct_single_str("cat") == ["#ca", "cat", "at#"]
 
 
 def test_char_trigram_short_strings():
-    assert _ct("a") == ["#a#"]
-    assert _ct("ab") == ["#ab", "ab#"]
+    assert _ct_single_str("a") == ["#a#"]
+    assert _ct_single_str("ab") == ["#ab", "ab#"]
 
 
 def test_char_trigram_empty_string():
-    assert _ct("") == []
+    assert _ct_single_str("") == []
 
 
 def test_char_trigram_whitespace_bridging():
-    tokens = _ct("hello world")
+    tokens = _ct_single_str("hello world")
     expected = [
         # hello
         "#he",
@@ -169,19 +167,19 @@ def test_char_trigram_multiple_whitespace():
     # which creates bridging trigrams. Consecutive whitespace chars do not
     # create multiple boundaries because of the `cq.back() != kBoundary` check.
     expected = ["#a#", "a#b", "#b#"]
-    assert _ct("a b") == expected
-    assert _ct("a  b") == expected
-    assert _ct("a \t b") == expected
+    assert _ct_single_str("a b") == expected
+    assert _ct_single_str("a  b") == expected
+    assert _ct_single_str("a \t b") == expected
 
 
 def test_char_trigram_with_punctuation():
     # Punctuation is treated as a regular character in trigram tokenization.
-    assert _ct("a,b") == ["#a,", "a,b", ",b#"]
+    assert _ct_single_str("a,b") == ["#a,", "a,b", ",b#"]
 
 
 def test_char_trigram_cjk_mixed():
     # CJK characters are not treated specially in char-trigram generation.
-    assert _ct("a我b") == ["#a我", "a我b", "我b#"]
+    assert _ct_single_str("a我b") == ["#a我", "a我b", "我b#"]
 
 
 def test_char_trigram_cjk():
@@ -189,7 +187,7 @@ def test_char_trigram_cjk():
     cjk_sentence = "我爱机器学习"
     # A sequence of CJK characters should be wrapped with sentinels as well.
     # e.g. "我" → [#我爱, 我爱机...] but to keep test simple we just check count.
-    tris = _ct(cjk_sentence)
+    tris = _ct_single_str(cjk_sentence)
     expected = ['#我爱', '我爱机', '爱机器', '机器学', '器学习', '学习#']
     assert tris == expected
 
@@ -199,28 +197,26 @@ def test_char_trigram_cjk():
 # ---------------------------------------------------------------------------
 
 def test_ngram_counts():
-    counts_py = fastgrams.ngram_counts(["hello world", "hello there"], n=1)
-    counts = {k: int(v) for k, v in counts_py.items()}
+    counts = fg.ngram_counts(["hello world", "hello there"])
     expected = {"hello": 2, "world": 1, "there": 1}
     assert counts == expected
 
 
 def test_ngram_counts_empty():
-    assert fastgrams.ngram_counts([]) == {}
-    assert fastgrams.ngram_counts(["", "  ", ".,!"]) == {}
+    assert fg.ngram_counts([]) == {}
+    assert fg.ngram_counts(["", "  ", ".,!"]) == {}
 
 
 def test_char_trigram_counts():
-    counts_py = fastgrams.char_trigram_counts(["ab", "ab"])
-    counts = {k: int(v) for k, v in counts_py.items()}
+    counts = fg.char_trigram_counts(["ab", "ab"])
     expected_tokens = ["#ab", "ab#"]  # For a 2-letter word there are 2 trigrams
     expected = {t: 2 for t in expected_tokens}
     assert counts == expected
 
 
 def test_char_trigram_counts_empty():
-    assert fastgrams.char_trigram_counts([]) == {}
-    assert fastgrams.char_trigram_counts(["", " "]) == {}
+    assert fg.char_trigram_counts([]) == {}
+    assert fg.char_trigram_counts(["", " "]) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +225,9 @@ def test_char_trigram_counts_empty():
 
 def test_vocab_ngram_tokenizer():
     vocab = {"hello": 1, "world": 2}
-    tok = fastgrams.VocabNgramTokenizer(vocab, n=1)
+    tok = fg.VocabNgramTokenizer(vocab)
 
-    arrays = tok.tokenize(["hello world", "unknown"], default=-1)
+    arrays = tok.tokenize(["hello world", "unknown"])
     # First sentence → [1, 2]
     assert list(arrays[0]) == [1, 2]
     # Second sentence contains unknown token, should map to default.
@@ -240,15 +236,15 @@ def test_vocab_ngram_tokenizer():
 
 def test_vocab_ngram_tokenizer_skip_unknown():
     vocab = {"hello": 1, "world": 2}
-    tok = fastgrams.VocabNgramTokenizer(vocab, n=1)
-    # With no default, unknown tokens should be skipped.
-    arrays = tok.tokenize(["hello world", "unknown"], default=None)
+    tok = fg.VocabNgramTokenizer(vocab)
+    # With no default, unknown tokens should be filled with default
+    arrays = tok.tokenize(["hello world", "unknown"])
     assert list(arrays[0]) == [1, 2]
-    assert list(arrays[1]) == []
+    assert list(arrays[1]) == [-1]
 
 
 def test_vocab_ngram_tokenizer_empty_input():
-    tok = fastgrams.VocabNgramTokenizer({"a": 1}, n=1)
+    tok = fg.VocabNgramTokenizer({"a": 1})
     assert tok.tokenize([]) == []
     # An empty string produces an empty array of tokens.
     arrs = tok.tokenize([""])
@@ -258,42 +254,20 @@ def test_vocab_ngram_tokenizer_empty_input():
 
 def test_vocab_char_trigram_tokenizer():
     # Build vocab from tokens of "cat"
-    tris = fastgrams.char_trigram_tokenize("cat")
+    tris = _ct_single_str("cat")
     vocab = {t: i for i, t in enumerate(tris)}
 
-    tok = fastgrams.VocabCharTrigramTokenizer(vocab)
-    arrays = tok.tokenize(["cat", "dog"], default=-1)
+    tok = fg.VocabCharTrigramTokenizer(vocab)
+    arrays = tok.tokenize(["cat", "dog"])
 
     assert list(arrays[0]) == list(range(len(tris)))
     # "dog" has trigrams not in vocab → all default.
     assert all(v == -1 for v in arrays[1])
 
 
-def test_vocab_char_trigram_tokenizer_skip_unknown():
-    # Build vocab from tokens of "cat"
-    tris = fastgrams.char_trigram_tokenize("cat")
-    vocab = {t: i for i, t in enumerate(tris)}
-
-    tok = fastgrams.VocabCharTrigramTokenizer(vocab)
-    arrays = tok.tokenize(["cat", "dog"], default=None)
-
-    assert list(arrays[0]) == list(range(len(tris)))
-    # "dog" has trigrams not in vocab -> all skipped.
-    assert list(arrays[1]) == []
-
-
 def test_vocab_char_trigram_tokenizer_empty_input():
-    tok = fastgrams.VocabCharTrigramTokenizer({"#a#": 1})
+    tok = fg.VocabCharTrigramTokenizer({"#a#": 1})
     assert tok.tokenize([]) == []
     arrs = tok.tokenize([""])
     assert len(arrs) == 1
     assert len(arrs[0]) == 0
-"""
-
-# End of commented-out test block
-
-# ---------------------------------------------------------------------------
-# Active tests for char_trigram_counts --------------------------------------
-# ---------------------------------------------------------------------------
-
-
