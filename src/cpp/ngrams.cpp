@@ -1,5 +1,6 @@
 // fastgrams – condensed n-gram / char-trigram code path taken from
-// the Pinterest OSS implementation, stripped of Torch & logging.
+// the Pinterest OmniSearchSage implementation, python-centric (no Torch)
+// with some modifications/optimizations (especially for char-trigram tokenization).
 //
 // Public Python API (via pybind11):
 //   ngram_tokenize(s: str, n: int = 1)          -> List[str]
@@ -28,6 +29,7 @@
 namespace py = pybind11;
 // Unicode code points are at most 21 bits (max value 0x10FFFF), so no character can be larger than 1<<21.
 // and 3 characters can be packed into a 63-bit integer.
+// This is a much more compact way to store a trigram than an std::string.
 typedef std::uint64_t packed_trigram;
 
 // Forward declaration so structs above can call it
@@ -225,6 +227,14 @@ inline packed_trigram pack_trigram(const icu::UnicodeString& us) {
 }
 
 }  // namespace
+
+
+inline packed_trigram pack_trigram(char32_t a, char32_t b, char32_t c) {
+    constexpr std::uint64_t kMask21_global = (1ULL << 21) - 1ULL;
+    return (static_cast<std::uint64_t>(a) & kMask21_global) |
+           ((static_cast<std::uint64_t>(b) & kMask21_global) << 21) |
+           ((static_cast<std::uint64_t>(c) & kMask21_global) << 42);
+}
 
 /* ------------------------------------------------------------------------ */
 /*  Public (non-class) API – mirrored signatures                             */

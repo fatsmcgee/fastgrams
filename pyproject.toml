@@ -26,7 +26,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "jupyter",
-    "datasets"
+    "datasets",
+    "pytest"
 ]
 
 [tool.scikit-build]
